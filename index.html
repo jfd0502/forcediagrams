@@ -607,6 +607,12 @@
             background: #ffffff;
         }
 
+        /* Disable number input spin buttons styling if desired, while maintaining layout */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            opacity: 1;
+        }
+
         .btn-delete {
             background: rgba(244, 63, 94, 0.1);
             color: #e11d48;
@@ -1063,6 +1069,7 @@
             subScenario: 'car',
             hasWall: true,
             wallBroken: false,
+            groundBroken: false,
             carDamage: 0,
             isExploded: false,
             sbPosX: 60,
@@ -1184,6 +1191,7 @@
             sandboxState.sbVelY = 0;
             sandboxState.carDamage = 0;
             sandboxState.wallBroken = false;
+            sandboxState.groundBroken = false;
             sandboxState.isExploded = false;
             sparks = [];
             smokeParticles = [];
@@ -1227,6 +1235,13 @@
         }
 
         function setupEventListeners() {
+            // DISABLE SCROLL CHANGE NUMBERS ON INPUTS
+            document.addEventListener('wheel', function (e) {
+                if (document.activeElement && document.activeElement.type === 'number') {
+                    document.activeElement.blur();
+                }
+            }, { passive: true });
+
             document.getElementById('btn-start-first').onclick = () => loadScenario(0);
             document.getElementById('btn-start-sandbox').onclick = tryOpenSandbox;
             document.getElementById('btn-nav-sandbox').onclick = tryOpenSandbox;
@@ -1308,7 +1323,7 @@
             document.getElementById('btn-car-reset-damage').onclick = () => {
                 resetSandboxPhysicsState();
                 initAnimation('sandbox');
-                showToast("🛠️ Vehicle body & wall fully repaired!");
+                showToast("🛠️ Vehicle body & ground fully repaired!");
             };
 
             document.getElementById('btn-preset-rest').onclick = () => {
@@ -1458,15 +1473,15 @@
 
             document.getElementById('q-progress-title').textContent = "🧪 Sandbox Mode — Dynamic Physics Lab";
             document.getElementById('q-title').textContent = "🧪 Interactive Physics Sandbox";
-            document.getElementById('q-desc').textContent = "Free-form laboratory! Construct forces (Up, Down, Left, Right). Test realistic Car Crashes & Wall Explosions, Airborne Lift forces, or Bowling Alley Pin collisions live on canvas!";
-            document.getElementById('hint-text').textContent = "In Sandbox Mode: Upward forces exceeding gravity lift vehicles into the air! Driving into the wall at high speed causes crumpling, explosions, and wall destruction!";
+            document.getElementById('q-desc').textContent = "Free-form laboratory! Construct forces (Up, Down, Left, Right). Test realistic Car Crashes & Wall Explosions, Airborne Lift forces, extreme Ground Collapses, or Bowling Alley Pin collisions live on canvas!";
+            document.getElementById('hint-text').textContent = "In Sandbox Mode: High speed impacts shatter walls, while extremely high downward net forces break through the ground, crumpling objects into pieces!";
 
             hintContainer.classList.add('hidden');
             feedbackArea.innerHTML = `
                 <div class="feedback-box" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #0284c7;">
                     <span style="font-size: 1.3rem;">🧪</span>
                     <div>
-                        <strong>Sandbox Engine Active:</strong> Modify forces to observe live physics! Test Net Upward force to fly, or Net Right force to smash through the wall!
+                        <strong>Sandbox Engine Active:</strong> Modify forces to observe live physics! Test Net Upward force to fly, high speed to break walls, or huge downward net force to shatter the ground!
                     </div>
                 </div>
             `;
@@ -2370,8 +2385,9 @@
                         const groundY = height - 55;
                         const wallX = width - 60;
 
-                        // Road Surface
-                        ctx.fillStyle = '#334155'; ctx.fillRect(0, groundY, width, 55);
+                        // Road Surface or Cracked Surface
+                        ctx.fillStyle = sandboxState.groundBroken ? '#1e293b' : '#334155'; 
+                        ctx.fillRect(0, groundY, width, 55);
                         ctx.fillStyle = '#020617'; ctx.fillRect(0, groundY, width, 4);
                         
                         ctx.fillStyle = '#f59e0b';
@@ -2399,10 +2415,37 @@
                         sandboxState.sbPosX += sandboxState.sbVelX;
                         sandboxState.sbPosY -= sandboxState.sbVelY;
 
-                        // Ground Bounds Collision
+                        // GROUND COLLISION & HIGH DOWN FORCE DESTRUCTION LOGIC
+                        const EXTREME_DOWN_FORCE = -120; // High net force threshold down
+
                         if (sandboxState.sbPosY >= groundY - 30) {
-                            sandboxState.sbPosY = groundY - 30;
-                            if (sandboxState.sbVelY < 0) sandboxState.sbVelY = 0;
+                            if (netY <= EXTREME_DOWN_FORCE) {
+                                // Break through ground with high downward net force!
+                                if (!sandboxState.groundBroken) {
+                                    sandboxState.groundBroken = true;
+                                    sandboxState.carDamage = 100;
+                                    sandboxState.isExploded = true;
+                                    canvasShake = 22;
+
+                                    createExplosion(sandboxState.sbPosX + 45, groundY, 40);
+
+                                    for (let i = 0; i < 30; i++) {
+                                        wallDebris.push({
+                                            x: sandboxState.sbPosX + Math.random() * 80,
+                                            y: groundY + Math.random() * 20,
+                                            vx: (Math.random() - 0.5) * 8,
+                                            vy: Math.random() * 6 + 2,
+                                            size: Math.random() * 8 + 4,
+                                            rot: Math.random() * Math.PI,
+                                            color: Math.random() > 0.5 ? '#475569' : '#0f172a'
+                                        });
+                                    }
+                                }
+                                // Allow falling through ground
+                            } else if (!sandboxState.groundBroken) {
+                                sandboxState.sbPosY = groundY - 30;
+                                if (sandboxState.sbVelY < 0) sandboxState.sbVelY = 0;
+                            }
                         }
 
                         // Left Canvas Boundary
@@ -2417,360 +2460,249 @@
                             sandboxState.sbVelY = 0;
                         }
 
-                        // WALL IMPACT & DESTRUCTION LOGIC
+                        // WALL IMPACT & DESTRUCTION LOGIC (UPPED THRESHOLD TO 18.0)
                         const carFrontX = sandboxState.sbPosX + 90 - (sandboxState.carDamage * 0.15);
                         
                         if (sandboxState.hasWall && !sandboxState.wallBroken) {
                             if (carFrontX >= wallX) {
                                 const impactSpeed = Math.abs(sandboxState.sbVelX);
 
-                                if (impactSpeed > 4.5) {
+                                if (impactSpeed > 18.0) { // High threshold on wall break
                                     // EXTREME IMPACT: WALL BREAK + EXPLOSION!
                                     sandboxState.wallBroken = true;
                                     sandboxState.carDamage = 100;
                                     sandboxState.isExploded = true;
-                                    canvasShake = 16;
+                                    canvasShake = 20;
 
                                     // Wall Brick Debris
                                     for (let i = 0; i < 35; i++) {
                                         wallDebris.push({
                                             x: wallX + Math.random() * 20,
                                             y: groundY - Math.random() * 80,
-                                            vx: Math.random() * 7 + 2,
-                                            vy: (Math.random() - 0.7) * 6,
-                                            r: Math.random() * 5 + 3,
-                                            color: Math.random() > 0.5 ? '#78350f' : '#b45309',
+                                            vx: Math.random() * 8 + 2,
+                                            vy: (Math.random() - 0.5) * 10,
+                                            size: Math.random() * 10 + 4,
                                             rot: Math.random() * Math.PI,
-                                            vRot: (Math.random() - 0.5) * 0.3
+                                            color: Math.random() > 0.5 ? '#b91c1c' : '#7f1d1d'
                                         });
                                     }
-
-                                    createExplosion(wallX - 10, groundY - 30);
-                                    showToast("💥 BOOM! Wall destroyed in extreme collision!");
-                                    sandboxState.sbVelX *= 0.3; // Penetrate wall
-
-                                } else if (impactSpeed > 0.5) {
-                                    // MODERATE IMPACT: CRUMPLE & BOUNCE
-                                    sandboxState.carDamage = Math.min(100, sandboxState.carDamage + impactSpeed * 18);
-                                    
-                                    if (impactSpeed > 2.5) {
-                                        canvasShake = 8;
-                                        createExplosion(carFrontX, groundY - 25, 12);
-                                    }
-
-                                    for (let i = 0; i < 18; i++) {
+                                    createExplosion(wallX, groundY - 40, 35);
+                                } else {
+                                    // Lower Speed Collision: Bounce & Damage
+                                    sandboxState.sbVelX = -sandboxState.sbVelX * 0.3;
+                                    sandboxState.carDamage = Math.min(100, sandboxState.carDamage + 25);
+                                    canvasShake = 8;
+                                    for (let i = 0; i < 10; i++) {
                                         sparks.push({
-                                            x: carFrontX, y: groundY - 15 + (Math.random() - 0.5) * 30,
-                                            vx: -(Math.random() * 5 + 1), vy: (Math.random() - 0.5) * 5,
-                                            life: 1.0
+                                            x: wallX,
+                                            y: groundY - 20 + (Math.random() - 0.5) * 20,
+                                            vx: (Math.random() - 1) * 5,
+                                            vy: (Math.random() - 0.5) * 5,
+                                            life: 1
                                         });
                                     }
-
-                                    sandboxState.sbPosX = wallX - 90 + (sandboxState.carDamage * 0.15);
-                                    sandboxState.sbVelX = -sandboxState.sbVelX * 0.25;
                                 }
                             }
                         }
 
-                        // Draw Wall (Intact or Broken)
-                        if (sandboxState.hasWall) {
-                            if (!sandboxState.wallBroken) {
-                                ctx.fillStyle = '#78350f';
-                                ctx.fillRect(wallX, groundY - 85, 30, 85);
-                                ctx.strokeStyle = '#451a03';
-                                ctx.lineWidth = 1.5;
-                                for (let wy = groundY - 85; wy < groundY; wy += 12) {
-                                    ctx.beginPath(); ctx.moveTo(wallX, wy); ctx.lineTo(wallX + 30, wy); ctx.stroke();
-                                }
-                            } else {
-                                // Broken Wall Rubble
-                                ctx.fillStyle = '#451a03';
-                                ctx.fillRect(wallX, groundY - 15, 30, 15);
-                                ctx.fillStyle = '#78350f';
-                                ctx.beginPath();
-                                ctx.moveTo(wallX - 5, groundY);
-                                ctx.lineTo(wallX + 10, groundY - 22);
-                                ctx.lineTo(wallX + 25, groundY - 10);
-                                ctx.lineTo(wallX + 35, groundY);
-                                ctx.closePath();
-                                ctx.fill();
+                        // DRAW BRICK WALL
+                        if (sandboxState.hasWall && !sandboxState.wallBroken) {
+                            ctx.fillStyle = '#b91c1c';
+                            ctx.fillRect(wallX, groundY - 90, 35, 90);
+                            ctx.strokeStyle = '#7f1d1d';
+                            ctx.lineWidth = 1.5;
+                            for (let wy = groundY - 90; wy < groundY; wy += 12) {
+                                ctx.beginPath(); ctx.moveTo(wallX, wy); ctx.lineTo(wallX + 35, wy); ctx.stroke();
                             }
                         }
 
-                        // Render Wall Flying Debris
-                        for (let i = wallDebris.length - 1; i >= 0; i--) {
-                            const d = wallDebris[i];
-                            d.x += d.vx; d.y += d.vy; d.vy += 0.25;
-                            d.rot += d.vRot;
-                            if (d.y > groundY + 10) {
-                                d.y = groundY + 10;
-                                d.vx *= 0.6;
-                            }
-                            ctx.save();
-                            ctx.translate(d.x, d.y);
-                            ctx.rotate(d.rot);
-                            ctx.fillStyle = d.color;
-                            ctx.fillRect(-d.r / 2, -d.r / 2, d.r, d.r * 0.7);
-                            ctx.restore();
-                        }
+                        // DRAW CAR OR CRUMPLED CAR PIECES
+                        const carX = sandboxState.sbPosX;
+                        const carY = sandboxState.sbPosY;
 
-                        // Render Sparks
-                        for (let i = sparks.length - 1; i >= 0; i--) {
-                            const s = sparks[i];
-                            s.x += s.vx; s.y += s.vy; s.life -= 0.04;
-                            if (s.life <= 0) { sparks.splice(i, 1); continue; }
-                            ctx.fillStyle = `rgba(245, 158, 11, ${s.life})`;
-                            ctx.beginPath(); ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2); ctx.fill();
-                        }
+                        if (sandboxState.isExploded || sandboxState.carDamage >= 100) {
+                            // Crumpled / Shattered Pieces Body
+                            ctx.fillStyle = '#dc2626';
+                            ctx.fillRect(carX, carY + 10, 50, 18);
+                            ctx.fillRect(carX + 45, carY + 16, 25, 12);
 
-                        // Engine Smoke
-                        if (sandboxState.carDamage > 25 && Math.random() < 0.6) {
+                            ctx.fillStyle = '#475569';
+                            ctx.fillRect(carX + 15, carY + 5, 25, 10);
+
+                            // Smoke rising
                             smokeParticles.push({
-                                x: sandboxState.sbPosX + 70,
-                                y: sandboxState.sbPosY - 10,
-                                vx: -1 - Math.random() * 1.5,
-                                vy: -1 - Math.random() * 1.5,
-                                r: 3 + (sandboxState.carDamage / 20) + Math.random() * 3,
+                                x: carX + 30 + (Math.random() - 0.5) * 20,
+                                y: carY + (Math.random() - 0.5) * 10,
+                                vx: (Math.random() - 0.5) * 1,
+                                vy: -1.5 - Math.random() * 1,
+                                r: 4 + Math.random() * 6,
                                 alpha: 0.7
                             });
-                        }
-
-                        // Render Smoke
-                        for (let i = smokeParticles.length - 1; i >= 0; i--) {
-                            const p = smokeParticles[i];
-                            p.x += p.vx; p.y += p.vy; p.r += 0.15; p.alpha -= 0.02;
-                            if (p.alpha <= 0) { smokeParticles.splice(i, 1); continue; }
-                            ctx.fillStyle = sandboxState.isExploded ? `rgba(239, 68, 68, ${p.alpha * 0.5})` : `rgba(148, 163, 184, ${p.alpha})`;
-                            ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-                        }
-
-                        // Render Explosion Fireballs
-                        for (let i = explosionParticles.length - 1; i >= 0; i--) {
-                            const ep = explosionParticles[i];
-                            ep.x += ep.vx; ep.y += ep.vy; ep.r += ep.expand; ep.alpha -= 0.035;
-                            if (ep.alpha <= 0) { explosionParticles.splice(i, 1); continue; }
-                            ctx.fillStyle = ep.color.replace('ALPHA', Math.max(0, ep.alpha));
-                            ctx.beginPath(); ctx.arc(ep.x, ep.y, ep.r, 0, Math.PI * 2); ctx.fill();
-                        }
-
-                        // DRAW DETAILED DESTRUCTIBLE CAR
-                        const cx = sandboxState.sbPosX;
-                        const cy = sandboxState.sbPosY;
-                        const dmg = sandboxState.carDamage;
-
-                        ctx.save();
-                        ctx.translate(cx, cy);
-
-                        // Headlight Beam
-                        if (dmg < 80) {
-                            const beamLength = Math.max(20, 110 - dmg * 0.8);
-                            const lightGrad = ctx.createLinearGradient(90, 0, 90 + beamLength, 0);
-                            lightGrad.addColorStop(0, 'rgba(254, 240, 138, 0.5)');
-                            lightGrad.addColorStop(1, 'rgba(254, 240, 138, 0.0)');
-                            ctx.fillStyle = lightGrad;
-                            ctx.beginPath();
-                            ctx.moveTo(85, 4);
-                            ctx.lineTo(85 + beamLength, -15);
-                            ctx.lineTo(85 + beamLength, 25);
-                            ctx.lineTo(85, 18);
-                            ctx.closePath();
-                            ctx.fill();
-                        }
-
-                        // Body Color Changes
-                        let bodyColor = '#0284c7';
-                        if (sandboxState.isExploded || dmg >= 90) bodyColor = '#1e1b18';
-                        else if (dmg > 50) bodyColor = '#991b1b';
-                        else if (dmg > 20) bodyColor = '#d97706';
-
-                        const bodyLength = Math.max(45, 90 - dmg * 0.35);
-
-                        // Lower Body
-                        ctx.fillStyle = bodyColor;
-                        ctx.beginPath();
-                        ctx.moveTo(0, 0);
-                        ctx.lineTo(bodyLength - 10, 0);
-                        
-                        if (dmg > 30) {
-                            ctx.lineTo(bodyLength - 2, 8 + Math.sin(frame) * 2);
-                            ctx.lineTo(bodyLength - 12, 16);
-                            ctx.lineTo(bodyLength - 5, 24);
                         } else {
-                            ctx.lineTo(bodyLength, 24);
-                        }
-                        ctx.lineTo(0, 24);
-                        ctx.closePath();
-                        ctx.fill();
+                            // Normal / Slightly Damaged Car Body
+                            const dmgOffset = sandboxState.carDamage * 0.15;
+                            ctx.fillStyle = '#0284c7';
+                            ctx.fillRect(carX, carY, 90 - dmgOffset, 24);
+                            ctx.fillRect(carX + 18, carY - 14, 52 - dmgOffset, 14);
 
-                        // Upper Roof & Cabin
-                        const roofLength = Math.max(25, 54 - dmg * 0.25);
-                        ctx.fillStyle = bodyColor;
-                        ctx.beginPath();
-                        ctx.moveTo(18, 0);
-                        ctx.lineTo(24, -14);
-                        ctx.lineTo(18 + roofLength, -14);
-                        if (dmg > 40) {
-                            ctx.lineTo(18 + roofLength - 8, -4);
-                        } else {
-                            ctx.lineTo(18 + roofLength + 8, 0);
-                        }
-                        ctx.closePath();
-                        ctx.fill();
+                            ctx.fillStyle = '#bae6fd';
+                            ctx.fillRect(carX + 40, carY - 11, 24, 11);
 
-                        // Glass / Windows
-                        if (dmg < 85) {
-                            ctx.fillStyle = dmg > 40 ? 'rgba(224, 242, 254, 0.4)' : '#bae6fd';
-                            ctx.fillRect(45, -12, Math.max(10, 22 - dmg * 0.15), 12);
-
-                            if (dmg > 30) {
-                                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
-                                ctx.beginPath();
-                                ctx.moveTo(48, -10); ctx.lineTo(58, -2); ctx.lineTo(52, -12);
-                                ctx.stroke();
-                            }
+                            rotAngle += sandboxState.sbVelX * 0.08;
+                            drawWheels(carX + 20, carY + 24, 10, rotAngle);
+                            drawWheels(carX + 70 - dmgOffset, carY + 24, 10, rotAngle);
                         }
 
-                        // Headlight
-                        ctx.fillStyle = dmg > 70 ? '#475569' : '#fef08a';
-                        ctx.fillRect(Math.min(88, bodyLength - 2), 6, 4, 8);
+                        drawSpeedHUD(ctx, width, `${Math.abs(sandboxState.sbVelX * 3.5).toFixed(1)} m/s`, 
+                            sandboxState.groundBroken ? "BROKE THROUGH GROUND!" : 
+                            sandboxState.wallBroken ? "WALL DESTROYED!" : "SANDBOX ACTIVE");
 
-                        // Wheels
-                        const rotVel = sandboxState.sbVelX * 0.08;
-                        rotAngle += rotVel;
+                    } else if (sandboxState.subScenario === 'bowling') {
+                        const groundY = height - 55;
 
-                        drawWheels(22, 24, 10, rotAngle);
+                        // Lane Surface
+                        ctx.fillStyle = '#b45309'; ctx.fillRect(0, groundY, width, 55);
+                        ctx.fillStyle = '#78350f'; ctx.fillRect(0, groundY, width, 4);
 
-                        if (dmg > 60) {
-                            ctx.save();
-                            ctx.translate(bodyLength - 18, 24);
-                            ctx.rotate(0.35);
-                            drawWheels(0, 0, 10, rotAngle * 0.5);
-                            ctx.restore();
-                        } else {
-                            drawWheels(bodyLength - 18, 24, 10, rotAngle);
-                        }
-
-                        // Fire Particles on Engine
-                        if (sandboxState.isExploded || dmg > 75) {
-                            for (let f = 0; f < 3; f++) {
-                                const fx = Math.random() * bodyLength;
-                                const fy = -5 - Math.random() * 15;
-                                const fr = 4 + Math.random() * 6;
-                                ctx.fillStyle = Math.random() > 0.5 ? '#f59e0b' : '#ef4444';
-                                ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI * 2); ctx.fill();
-                            }
-                        }
-
-                        ctx.restore();
-                        ctx.restore(); // restore shake
-
-                        const speedText = `${Math.abs(sandboxState.sbVelX * 3.5).toFixed(1)} m/s`;
-                        let statusText = "SANDBOX CAR ACTIVE";
-                        if (sandboxState.isExploded) statusText = "💥 VEHICLE TOTALED / EXPLODED";
-                        else if (dmg > 50) statusText = "⚠️ CRUMPLED / SEVERE DAMAGE";
-                        else if (dmg > 0) statusText = "🛠️ MINOR DAMAGE";
-                        
-                        drawSpeedHUD(ctx, width, speedText, statusText);
-                    }
-
-                    // BOWLING SCENARIO
-                    else if (sandboxState.subScenario === 'bowling') {
-                        ctx.restore(); // restore shake if applied
-                        const groundY = height - 40;
-                        const laneY = groundY - 10;
-
-                        ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, width, height);
-
-                        const laneGrad = ctx.createLinearGradient(0, laneY - 40, 0, laneY + 20);
-                        laneGrad.addColorStop(0, '#78350f'); laneGrad.addColorStop(1, '#d97706');
-                        ctx.fillStyle = laneGrad;
-                        ctx.fillRect(0, laneY - 40, width, 50);
-
-                        ctx.fillStyle = '#0f172a';
-                        ctx.fillRect(0, laneY - 50, width, 10);
-                        ctx.fillRect(0, laneY + 10, width, 10);
-
+                        // Physics
                         sandboxState.sbVelX += netX * 0.0025;
                         sandboxState.sbVelY += netY * 0.0025;
 
-                        sandboxState.sbVelX *= 0.99;
-                        sandboxState.sbVelY *= 0.99;
+                        sandboxState.sbVelX *= 0.988;
+                        sandboxState.sbVelY *= 0.988;
 
                         if (!sandboxState.sbPosY || sandboxState.sbPosY === 0) {
-                            sandboxState.sbPosY = laneY - 15;
+                            sandboxState.sbPosY = groundY - 18;
                         }
 
-                        // Air physics & bounds
-                        if (sandboxState.sbPosY < laneY - 15) {
+                        if (sandboxState.sbPosY < groundY - 18) {
                             sandboxState.sbVelY -= 0.12;
                         }
 
                         sandboxState.sbPosX += sandboxState.sbVelX;
                         sandboxState.sbPosY -= sandboxState.sbVelY;
 
-                        if (sandboxState.sbPosY >= laneY - 15) {
-                            sandboxState.sbPosY = laneY - 15;
-                            if (sandboxState.sbVelY < 0) sandboxState.sbVelY = 0;
-                        }
+                        // BOWLING BALL GROUND COLLISION / DESTRUCTION
+                        const EXTREME_DOWN_FORCE = -120;
 
-                        if (sandboxState.sbPosX < 20) {
-                            sandboxState.sbPosX = 20;
-                            sandboxState.sbVelX = 0;
-                        }
-
-                        if (!sandboxState.pins || sandboxState.pins.length === 0) {
-                            sandboxState.pins = createBowlingPins(width, height);
-                        }
-
-                        sandboxState.pins.forEach(pin => {
-                            if (!pin.isHit) {
-                                const dist = Math.hypot(sandboxState.sbPosX - pin.x, sandboxState.sbPosY - pin.y);
-                                if (dist < 28) {
-                                    pin.isHit = true;
-                                    pin.vx = sandboxState.sbVelX * (0.8 + Math.random() * 0.4) + Math.random() * 2;
-                                    pin.vy = (Math.random() - 0.5) * 4 - sandboxState.sbVelY * 0.5;
-                                    pin.vRot = (Math.random() - 0.5) * 0.4;
+                        if (sandboxState.sbPosY >= groundY - 18) {
+                            if (netY <= EXTREME_DOWN_FORCE) {
+                                if (!sandboxState.groundBroken) {
+                                    sandboxState.groundBroken = true;
+                                    canvasShake = 20;
+                                    createExplosion(sandboxState.sbPosX, groundY, 35);
+                                    for (let i = 0; i < 25; i++) {
+                                        wallDebris.push({
+                                            x: sandboxState.sbPosX + (Math.random() - 0.5) * 30,
+                                            y: groundY + Math.random() * 20,
+                                            vx: (Math.random() - 0.5) * 8,
+                                            vy: Math.random() * 6 + 2,
+                                            size: Math.random() * 6 + 3,
+                                            rot: Math.random() * Math.PI,
+                                            color: Math.random() > 0.5 ? '#1e293b' : '#78350f'
+                                        });
+                                    }
                                 }
-                            } else {
-                                pin.x += pin.vx;
-                                pin.y += pin.vy;
-                                pin.rot += pin.vRot;
-                                pin.vx *= 0.95;
-                                pin.vy *= 0.95;
-                                pin.vRot *= 0.95;
+                            } else if (!sandboxState.groundBroken) {
+                                sandboxState.sbPosY = groundY - 18;
+                                if (sandboxState.sbVelY < 0) sandboxState.sbVelY = 0;
+                            }
+                        }
+
+                        // Pin Collisions
+                        sandboxState.pins.forEach(p => {
+                            const dx = (sandboxState.sbPosX) - p.x;
+                            const dy = (sandboxState.sbPosY) - p.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < 28 && !p.isHit) {
+                                p.isHit = true;
+                                p.vx = sandboxState.sbVelX * 0.8 + (Math.random() - 0.5) * 3;
+                                p.vy = -Math.abs(sandboxState.sbVelX) * 0.5 - Math.random() * 3;
+                                p.vRot = (Math.random() - 0.5) * 0.4;
+                                canvasShake = 6;
                             }
 
-                            ctx.save();
-                            ctx.translate(pin.x, pin.y);
-                            ctx.rotate(pin.rot);
+                            if (p.isHit) {
+                                p.x += p.vx;
+                                p.y += p.vy;
+                                p.rot += p.vRot;
+                                p.vy += 0.2;
+                            }
 
+                            // Draw Pin
+                            ctx.save();
+                            ctx.translate(p.x, p.y);
+                            ctx.rotate(p.rot);
                             ctx.fillStyle = '#ffffff';
                             ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI * 2); ctx.fill();
-                            ctx.fillRect(-4, -4, 8, 16);
+                            ctx.fillRect(-4, -4, 8, 14);
                             ctx.fillStyle = '#ef4444';
                             ctx.fillRect(-4, -6, 8, 3);
-
                             ctx.restore();
                         });
 
-                        const bx = sandboxState.sbPosX;
-                        const by = sandboxState.sbPosY;
+                        // Draw Bowling Ball
+                        if (sandboxState.groundBroken) {
+                            // Shattered ball pieces
+                            ctx.fillStyle = '#2563eb';
+                            ctx.beginPath(); ctx.arc(sandboxState.sbPosX - 6, sandboxState.sbPosY + 8, 6, 0, Math.PI * 2); ctx.fill();
+                            ctx.beginPath(); ctx.arc(sandboxState.sbPosX + 8, sandboxState.sbPosY + 12, 5, 0, Math.PI * 2); ctx.fill();
+                        } else {
+                            rotAngle += sandboxState.sbVelX * 0.1;
+                            ctx.save();
+                            ctx.translate(sandboxState.sbPosX, sandboxState.sbPosY);
+                            ctx.rotate(rotAngle);
+                            ctx.fillStyle = '#1d4ed8';
+                            ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
+                            ctx.fillStyle = '#000000';
+                            ctx.beginPath(); ctx.arc(-4, -4, 2.5, 0, Math.PI * 2); ctx.fill();
+                            ctx.beginPath(); ctx.arc(3, -5, 2.5, 0, Math.PI * 2); ctx.fill();
+                            ctx.beginPath(); ctx.arc(0, 2, 2.5, 0, Math.PI * 2); ctx.fill();
+                            ctx.restore();
+                        }
 
-                        ctx.save();
-                        ctx.translate(bx, by);
-
-                        ctx.fillStyle = '#a855f7';
-                        ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
-
-                        ctx.fillStyle = '#3b0764';
-                        ctx.beginPath(); ctx.arc(-4, -4, 2.5, 0, Math.PI * 2); ctx.fill();
-                        ctx.beginPath(); ctx.arc(3, -5, 2.5, 0, Math.PI * 2); ctx.fill();
-                        ctx.beginPath(); ctx.arc(0, 3, 3, 0, Math.PI * 2); ctx.fill();
-
-                        ctx.restore();
-
-                        drawSpeedHUD(ctx, width, `${Math.abs(sandboxState.sbVelX * 3.0).toFixed(1)} m/s`, "BOWLING ALLEY PHYSICS");
+                        drawSpeedHUD(ctx, width, `${Math.abs(sandboxState.sbVelX * 3.5).toFixed(1)} m/s`, 
+                            sandboxState.groundBroken ? "CRACKED THROUGH GROUND!" : "BOWLING ALLEY PHYSICS");
                     }
+
+                    // UPDATE PARTICLES (Sparks, Smoke, Explosions, Wall Debris)
+                    for (let i = explosionParticles.length - 1; i >= 0; i--) {
+                        const p = explosionParticles[i];
+                        p.x += p.vx; p.y += p.vy; p.r += p.expand; p.alpha -= 0.025;
+                        if (p.alpha <= 0) { explosionParticles.splice(i, 1); continue; }
+                        ctx.fillStyle = p.color.replace('ALPHA', p.alpha);
+                        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+                    }
+
+                    for (let i = smokeParticles.length - 1; i >= 0; i--) {
+                        const p = smokeParticles[i];
+                        p.x += p.vx; p.y += p.vy; p.r += 0.15; p.alpha -= 0.015;
+                        if (p.alpha <= 0) { smokeParticles.splice(i, 1); continue; }
+                        ctx.fillStyle = `rgba(148, 163, 184, ${p.alpha})`;
+                        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+                    }
+
+                    for (let i = wallDebris.length - 1; i >= 0; i--) {
+                        const d = wallDebris[i];
+                        d.x += d.vx; d.y += d.vy; d.vy += 0.25; d.rot += 0.1;
+                        ctx.save();
+                        ctx.translate(d.x, d.y);
+                        ctx.rotate(d.rot);
+                        ctx.fillStyle = d.color;
+                        ctx.fillRect(-d.size/2, -d.size/2, d.size, d.size);
+                        ctx.restore();
+                        if (d.y > height + 50) wallDebris.splice(i, 1);
+                    }
+
+                    for (let i = sparks.length - 1; i >= 0; i--) {
+                        const s = sparks[i];
+                        s.x += s.vx; s.y += s.vy; s.life -= 0.04;
+                        if (s.life <= 0) { sparks.splice(i, 1); continue; }
+                        ctx.fillStyle = `rgba(251, 191, 36, ${s.life})`;
+                        ctx.fillRect(s.x, s.y, 3, 3);
+                    }
+
+                    ctx.restore();
                 }
 
                 animFrameId = requestAnimationFrame(renderLoop);
@@ -2779,7 +2711,6 @@
             renderLoop();
         }
 
-        // Initialize application on DOM ready
         window.onload = initApp;
     </script>
 </body>
