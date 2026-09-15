@@ -989,7 +989,7 @@
             },
             {
                 id: 3, title: "Accelerating Downhill Sled",
-                desc: "A child slides down a steep snowy hill on a sled. Downward force due to gravity pulls the sled downhill (to the RIGHT) with 120 N of force, while friction opposes uphill (to the LEFT) with 40 N.",
+                desc: "A child slides down a steep snowy hill on a sled. The sled is applying a force RIGHT with 120 N, while friction opposes to the LEFT with 40 N.",
                 hint: "Model downhill gravity pull as 120 N to the RIGHT, and friction as 40 N to the LEFT. The net horizontal force is 80 N to the right.",
                 expected: [{ dir: 'right', val: 120 }, { dir: 'left', val: 40 }],
                 allowBalancedPerpendicular: true, animType: "sled_accel"
@@ -1024,14 +1024,14 @@
             },
             {
                 id: 8, title: "Pushing Heavy Crate",
-                desc: "A worker pushes a 500 N crate across the floor to the right at a steady constant velocity of 1.5 m/s with 150 N of push force. Model all horizontal and vertical forces acting on the crate (including upward normal force and downward gravity).",
+                desc: "A worker moves a crate (that has 500 N of force downward force due to gravity,) across the floor to the right at a steady constant velocity of 1.5 m/s with 150 N of push force. Model all horizontal and vertical forces acting on the crate (including upward normal force and downward gravity).",
                 hint: "Constant velocity means zero net force in all directions! Horizontal push (150 N right) equals friction (150 N left), and upward normal force (500 N) equals downward force due to gravity pushing down (500 N).",
                 expected: [{ dir: 'right', val: 150 }, { dir: 'left', val: 150 }, { dir: 'up', val: 500 }, { dir: 'down', val: 500 }],
                 allowBalancedPerpendicular: false, animType: "crate_push"
             },
             {
                 id: 9, title: "Baseball Flying Upward",
-                desc: "A baseball exerting a 4 N downward force due to gravity, was hit high into the air and is rising UPWARD. Ignore air resistance. Model forces acting on the ball while in flight.",
+                desc: "A baseball exerting a 4 N downward force due to gravity, was hit high into the air and is rising UPWARD. Ignore air resistance. Model forces acting on the ball AFTER it has been hit upward by the batter.",
                 hint: "Once the ball leaves the hand, there is NO upward force pushing it! Downward force due to gravity pushing down (4 N) is the only force acting on it in flight.",
                 expected: [{ dir: 'down', val: 4 }],
                 allowBalancedPerpendicular: false, animType: "ball_toss"
@@ -1062,7 +1062,9 @@
         let sandboxState = {
             subScenario: 'car',
             hasWall: true,
+            wallBroken: false,
             carDamage: 0,
+            isExploded: false,
             sbPosX: 60,
             sbPosY: 0,
             sbVelX: 0,
@@ -1077,6 +1079,13 @@
             netVal: '50',
             netDir: 'right'
         };
+
+        // Sandbox Global Particles & Effects
+        let sparks = [];
+        let smokeParticles = [];
+        let explosionParticles = [];
+        let wallDebris = [];
+        let canvasShake = 0;
 
         // --- DOM REFERENCES ---
         const landingPage = document.getElementById('landing-page');
@@ -1168,6 +1177,44 @@
             return pins;
         }
 
+        function resetSandboxPhysicsState() {
+            sandboxState.sbPosX = 60;
+            sandboxState.sbPosY = 0;
+            sandboxState.sbVelX = 0;
+            sandboxState.sbVelY = 0;
+            sandboxState.carDamage = 0;
+            sandboxState.wallBroken = false;
+            sandboxState.isExploded = false;
+            sparks = [];
+            smokeParticles = [];
+            explosionParticles = [];
+            wallDebris = [];
+            canvasShake = 0;
+            const canvas = document.getElementById('motionCanvas');
+            if (canvas) {
+                const w = canvas.clientWidth || 500;
+                const h = canvas.clientHeight || 260;
+                sandboxState.pins = createBowlingPins(w, h);
+            }
+        }
+
+        function createExplosion(x, y, count = 30) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 7 + 2;
+                explosionParticles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    r: Math.random() * 8 + 4,
+                    expand: Math.random() * 0.4 + 0.2,
+                    alpha: 1.0,
+                    color: Math.random() > 0.4 ? 'rgba(245, 158, 11, ALPHA)' : 'rgba(239, 68, 68, ALPHA)'
+                });
+            }
+        }
+
         function initApp() {
             renderScenariosGrid();
             setupEventListeners();
@@ -1241,28 +1288,14 @@
 
             document.getElementById('btn-replay-anim').onclick = () => {
                 if (isSandboxMode) {
-                    sandboxState.sbPosX = 60;
-                    sandboxState.sbVelX = 0;
-                    sandboxState.sbVelY = 0;
-                    const canvas = document.getElementById('motionCanvas');
-                    const w = canvas.clientWidth || 500;
-                    const h = canvas.clientHeight || 260;
-                    sandboxState.pins = createBowlingPins(w, h);
+                    resetSandboxPhysicsState();
                 }
                 initAnimation(isSandboxMode ? 'sandbox' : questions[currentQIndex].animType);
             };
 
             document.getElementById('sandbox-scenario-select').onchange = (e) => {
                 sandboxState.subScenario = e.target.value;
-                sandboxState.sbPosX = 60;
-                sandboxState.sbVelX = 0;
-                sandboxState.sbVelY = 0;
-                if (e.target.value === 'bowling') {
-                    const canvas = document.getElementById('motionCanvas');
-                    const w = canvas.clientWidth || 500;
-                    const h = canvas.clientHeight || 260;
-                    sandboxState.pins = createBowlingPins(w, h);
-                }
+                resetSandboxPhysicsState();
                 document.getElementById('car-sandbox-options').style.display = (e.target.value === 'car') ? 'flex' : 'none';
                 initAnimation('sandbox');
             };
@@ -1273,17 +1306,13 @@
             };
 
             document.getElementById('btn-car-reset-damage').onclick = () => {
-                sandboxState.carDamage = 0;
-                sandboxState.sbPosX = 60;
-                sandboxState.sbVelX = 0;
+                resetSandboxPhysicsState();
                 initAnimation('sandbox');
-                showToast("🛠️ Vehicle body fully repaired!");
+                showToast("🛠️ Vehicle body & wall fully repaired!");
             };
 
             document.getElementById('btn-preset-rest').onclick = () => {
-                sandboxState.sbPosX = 60;
-                sandboxState.sbVelX = 0;
-                sandboxState.sbVelY = 0;
+                resetSandboxPhysicsState();
                 setSandboxForces([
                     { id: 201, dir: 'up', val: 50 },
                     { id: 202, dir: 'down', val: 50 }
@@ -1291,9 +1320,8 @@
             };
 
             document.getElementById('btn-preset-speedup').onclick = () => {
-                sandboxState.sbPosX = 60;
+                resetSandboxPhysicsState();
                 sandboxState.sbVelX = 2.0;
-                sandboxState.sbVelY = 0;
                 setSandboxForces([
                     { id: 201, dir: 'up', val: 50 },
                     { id: 202, dir: 'down', val: 50 },
@@ -1303,9 +1331,8 @@
             };
 
             document.getElementById('btn-preset-slowdown').onclick = () => {
-                sandboxState.sbPosX = 60;
+                resetSandboxPhysicsState();
                 sandboxState.sbVelX = 7.0;
-                sandboxState.sbVelY = 0;
                 setSandboxForces([
                     { id: 201, dir: 'up', val: 50 },
                     { id: 202, dir: 'down', val: 50 },
@@ -1341,7 +1368,7 @@
                         <span class="q-num" style="background: rgba(2,132,199,0.2);">${unlocked ? '🧪 Free Lab' : '🔒 Locked'}</span>
                     </div>
                     <h3>Interactive Physics Sandbox</h3>
-                    <p>Free-form scenario playground! Experiment with dynamic Car Crashes, Airborne Flight, and Bowling Physics.</p>
+                    <p>Free-form scenario playground! Experiment with dynamic Car Crashes, Wall Destruction, Airborne Flight, and Bowling Physics.</p>
                 </div>
                 <div class="q-status" style="color: ${unlocked ? 'var(--primary)' : 'var(--text-muted)'};">
                     ${unlocked ? '🚀 Launch Sandbox' : '🔒 Finish 10 Scenarios to Unlock'}
@@ -1425,20 +1452,21 @@
             closeScenariosModal();
             isSandboxMode = true;
 
+            resetSandboxPhysicsState();
             sandboxControlsCard.classList.remove('hidden');
             document.getElementById('car-sandbox-options').style.display = (sandboxState.subScenario === 'car') ? 'flex' : 'none';
 
             document.getElementById('q-progress-title').textContent = "🧪 Sandbox Mode — Dynamic Physics Lab";
             document.getElementById('q-title').textContent = "🧪 Interactive Physics Sandbox";
-            document.getElementById('q-desc').textContent = "Free-form laboratory! Construct forces (Up, Down, Left, Right). Test realistic Car Crashes against walls, Airborne Lift forces, or Bowling Alley Pin collisions live on canvas!";
-            document.getElementById('hint-text').textContent = "In Sandbox Mode: Upward forces exceeding gravity lift vehicles into the air! Forward forces drive into walls causing realistic crumple damage.";
+            document.getElementById('q-desc').textContent = "Free-form laboratory! Construct forces (Up, Down, Left, Right). Test realistic Car Crashes & Wall Explosions, Airborne Lift forces, or Bowling Alley Pin collisions live on canvas!";
+            document.getElementById('hint-text').textContent = "In Sandbox Mode: Upward forces exceeding gravity lift vehicles into the air! Driving into the wall at high speed causes crumpling, explosions, and wall destruction!";
 
             hintContainer.classList.add('hidden');
             feedbackArea.innerHTML = `
                 <div class="feedback-box" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #0284c7;">
                     <span style="font-size: 1.3rem;">🧪</span>
                     <div>
-                        <strong>Sandbox Engine Active:</strong> Modify forces to observe live physics! Test Net Upward force to fly, or Net Right force to crash into the wall!
+                        <strong>Sandbox Engine Active:</strong> Modify forces to observe live physics! Test Net Upward force to fly, or Net Right force to smash through the wall!
                     </div>
                 </div>
             `;
@@ -1839,9 +1867,6 @@
             let frame = 0, pos = 0, vel = 0, rotAngle = 0;
             let ballHoldTimer = 0;
             let elevatorHoldTimer = 0;
-
-            let sparks = [];
-            const smokeParticles = [];
 
             const skyClouds = Array.from({ length: 6 }, (_, i) => ({
                 x: (i * 90 + 30) % width,
@@ -2323,6 +2348,14 @@
 
                 // DYNAMIC SANDBOX SIMULATION
                 else if (type === 'sandbox') {
+                    ctx.save();
+                    if (canvasShake > 0) {
+                        const shakeX = (Math.random() - 0.5) * canvasShake * 1.5;
+                        const shakeY = (Math.random() - 0.5) * canvasShake * 1.5;
+                        ctx.translate(shakeX, shakeY);
+                        canvasShake--;
+                    }
+
                     ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, width, height);
 
                     let netX = 0, netY = 0;
@@ -2335,37 +2368,349 @@
 
                     if (sandboxState.subScenario === 'car') {
                         const groundY = height - 55;
-                        const wallX = width - 50;
+                        const wallX = width - 60;
 
+                        // Road Surface
                         ctx.fillStyle = '#334155'; ctx.fillRect(0, groundY, width, 55);
-
-                        sandboxState.sbVelX += netX * 0.002;
-                        sandboxState.sbVelY += netY * 0.002;
-
-                        sandboxState.sbVelX *= 0.98;
-                        sandboxState.sbVelY *= 0.98;
-
-                        sandboxState.sbPosX += sandboxState.sbVelX;
-                        sandboxState.sbPosY = (sandboxState.sbPosY || groundY - 30) - sandboxState.sbVelY;
-
-                        if (sandboxState.hasWall && sandboxState.sbPosX > wallX - 90) {
-                            if (sandboxState.sbVelX > 1.0) {
-                                sandboxState.carDamage = Math.min(100, sandboxState.carDamage + sandboxState.sbVelX * 12);
-                                for (let i = 0; i < 15; i++) {
-                                    sparks.push({
-                                        x: wallX, y: groundY - 20 + (Math.random() - 0.5) * 30,
-                                        vx: -(Math.random() * 4 + 1), vy: (Math.random() - 0.5) * 4,
-                                        life: 1
-                                    });
-                                }
-                            }
-                            sandboxState.sbPosX = wallX - 90;
-                            sandboxState.sbVelX = -sandboxState.sbVelX * 0.2;
+                        ctx.fillStyle = '#020617'; ctx.fillRect(0, groundY, width, 4);
+                        
+                        ctx.fillStyle = '#f59e0b';
+                        for (let rx = 0; rx < width; rx += 35) {
+                            ctx.fillRect(rx, groundY + 24, 18, 3);
                         }
 
-                        if (sandboxState.sbPosY > groundY - 30) {
+                        // Velocity & Position Physics
+                        sandboxState.sbVelX += netX * 0.0025;
+                        sandboxState.sbVelY += netY * 0.0025;
+
+                        sandboxState.sbVelX *= 0.985;
+                        sandboxState.sbVelY *= 0.985;
+
+                        // Guarantee proper initial ground level
+                        if (!sandboxState.sbPosY || sandboxState.sbPosY === 0) {
                             sandboxState.sbPosY = groundY - 30;
+                        }
+
+                        // Gravity pull if airborne
+                        if (sandboxState.sbPosY < groundY - 30) {
+                            sandboxState.sbVelY -= 0.12;
+                        }
+
+                        sandboxState.sbPosX += sandboxState.sbVelX;
+                        sandboxState.sbPosY -= sandboxState.sbVelY;
+
+                        // Ground Bounds Collision
+                        if (sandboxState.sbPosY >= groundY - 30) {
+                            sandboxState.sbPosY = groundY - 30;
+                            if (sandboxState.sbVelY < 0) sandboxState.sbVelY = 0;
+                        }
+
+                        // Left Canvas Boundary
+                        if (sandboxState.sbPosX < 10) {
+                            sandboxState.sbPosX = 10;
+                            sandboxState.sbVelX = 0;
+                        }
+
+                        // Ceiling Boundary
+                        if (sandboxState.sbPosY < 15) {
+                            sandboxState.sbPosY = 15;
                             sandboxState.sbVelY = 0;
+                        }
+
+                        // WALL IMPACT & DESTRUCTION LOGIC
+                        const carFrontX = sandboxState.sbPosX + 90 - (sandboxState.carDamage * 0.15);
+                        
+                        if (sandboxState.hasWall && !sandboxState.wallBroken) {
+                            if (carFrontX >= wallX) {
+                                const impactSpeed = Math.abs(sandboxState.sbVelX);
+
+                                if (impactSpeed > 4.5) {
+                                    // EXTREME IMPACT: WALL BREAK + EXPLOSION!
+                                    sandboxState.wallBroken = true;
+                                    sandboxState.carDamage = 100;
+                                    sandboxState.isExploded = true;
+                                    canvasShake = 16;
+
+                                    // Wall Brick Debris
+                                    for (let i = 0; i < 35; i++) {
+                                        wallDebris.push({
+                                            x: wallX + Math.random() * 20,
+                                            y: groundY - Math.random() * 80,
+                                            vx: Math.random() * 7 + 2,
+                                            vy: (Math.random() - 0.7) * 6,
+                                            r: Math.random() * 5 + 3,
+                                            color: Math.random() > 0.5 ? '#78350f' : '#b45309',
+                                            rot: Math.random() * Math.PI,
+                                            vRot: (Math.random() - 0.5) * 0.3
+                                        });
+                                    }
+
+                                    createExplosion(wallX - 10, groundY - 30);
+                                    showToast("💥 BOOM! Wall destroyed in extreme collision!");
+                                    sandboxState.sbVelX *= 0.3; // Penetrate wall
+
+                                } else if (impactSpeed > 0.5) {
+                                    // MODERATE IMPACT: CRUMPLE & BOUNCE
+                                    sandboxState.carDamage = Math.min(100, sandboxState.carDamage + impactSpeed * 18);
+                                    
+                                    if (impactSpeed > 2.5) {
+                                        canvasShake = 8;
+                                        createExplosion(carFrontX, groundY - 25, 12);
+                                    }
+
+                                    for (let i = 0; i < 18; i++) {
+                                        sparks.push({
+                                            x: carFrontX, y: groundY - 15 + (Math.random() - 0.5) * 30,
+                                            vx: -(Math.random() * 5 + 1), vy: (Math.random() - 0.5) * 5,
+                                            life: 1.0
+                                        });
+                                    }
+
+                                    sandboxState.sbPosX = wallX - 90 + (sandboxState.carDamage * 0.15);
+                                    sandboxState.sbVelX = -sandboxState.sbVelX * 0.25;
+                                }
+                            }
+                        }
+
+                        // Draw Wall (Intact or Broken)
+                        if (sandboxState.hasWall) {
+                            if (!sandboxState.wallBroken) {
+                                ctx.fillStyle = '#78350f';
+                                ctx.fillRect(wallX, groundY - 85, 30, 85);
+                                ctx.strokeStyle = '#451a03';
+                                ctx.lineWidth = 1.5;
+                                for (let wy = groundY - 85; wy < groundY; wy += 12) {
+                                    ctx.beginPath(); ctx.moveTo(wallX, wy); ctx.lineTo(wallX + 30, wy); ctx.stroke();
+                                }
+                            } else {
+                                // Broken Wall Rubble
+                                ctx.fillStyle = '#451a03';
+                                ctx.fillRect(wallX, groundY - 15, 30, 15);
+                                ctx.fillStyle = '#78350f';
+                                ctx.beginPath();
+                                ctx.moveTo(wallX - 5, groundY);
+                                ctx.lineTo(wallX + 10, groundY - 22);
+                                ctx.lineTo(wallX + 25, groundY - 10);
+                                ctx.lineTo(wallX + 35, groundY);
+                                ctx.closePath();
+                                ctx.fill();
+                            }
+                        }
+
+                        // Render Wall Flying Debris
+                        for (let i = wallDebris.length - 1; i >= 0; i--) {
+                            const d = wallDebris[i];
+                            d.x += d.vx; d.y += d.vy; d.vy += 0.25;
+                            d.rot += d.vRot;
+                            if (d.y > groundY + 10) {
+                                d.y = groundY + 10;
+                                d.vx *= 0.6;
+                            }
+                            ctx.save();
+                            ctx.translate(d.x, d.y);
+                            ctx.rotate(d.rot);
+                            ctx.fillStyle = d.color;
+                            ctx.fillRect(-d.r / 2, -d.r / 2, d.r, d.r * 0.7);
+                            ctx.restore();
+                        }
+
+                        // Render Sparks
+                        for (let i = sparks.length - 1; i >= 0; i--) {
+                            const s = sparks[i];
+                            s.x += s.vx; s.y += s.vy; s.life -= 0.04;
+                            if (s.life <= 0) { sparks.splice(i, 1); continue; }
+                            ctx.fillStyle = `rgba(245, 158, 11, ${s.life})`;
+                            ctx.beginPath(); ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2); ctx.fill();
+                        }
+
+                        // Engine Smoke
+                        if (sandboxState.carDamage > 25 && Math.random() < 0.6) {
+                            smokeParticles.push({
+                                x: sandboxState.sbPosX + 70,
+                                y: sandboxState.sbPosY - 10,
+                                vx: -1 - Math.random() * 1.5,
+                                vy: -1 - Math.random() * 1.5,
+                                r: 3 + (sandboxState.carDamage / 20) + Math.random() * 3,
+                                alpha: 0.7
+                            });
+                        }
+
+                        // Render Smoke
+                        for (let i = smokeParticles.length - 1; i >= 0; i--) {
+                            const p = smokeParticles[i];
+                            p.x += p.vx; p.y += p.vy; p.r += 0.15; p.alpha -= 0.02;
+                            if (p.alpha <= 0) { smokeParticles.splice(i, 1); continue; }
+                            ctx.fillStyle = sandboxState.isExploded ? `rgba(239, 68, 68, ${p.alpha * 0.5})` : `rgba(148, 163, 184, ${p.alpha})`;
+                            ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+                        }
+
+                        // Render Explosion Fireballs
+                        for (let i = explosionParticles.length - 1; i >= 0; i--) {
+                            const ep = explosionParticles[i];
+                            ep.x += ep.vx; ep.y += ep.vy; ep.r += ep.expand; ep.alpha -= 0.035;
+                            if (ep.alpha <= 0) { explosionParticles.splice(i, 1); continue; }
+                            ctx.fillStyle = ep.color.replace('ALPHA', Math.max(0, ep.alpha));
+                            ctx.beginPath(); ctx.arc(ep.x, ep.y, ep.r, 0, Math.PI * 2); ctx.fill();
+                        }
+
+                        // DRAW DETAILED DESTRUCTIBLE CAR
+                        const cx = sandboxState.sbPosX;
+                        const cy = sandboxState.sbPosY;
+                        const dmg = sandboxState.carDamage;
+
+                        ctx.save();
+                        ctx.translate(cx, cy);
+
+                        // Headlight Beam
+                        if (dmg < 80) {
+                            const beamLength = Math.max(20, 110 - dmg * 0.8);
+                            const lightGrad = ctx.createLinearGradient(90, 0, 90 + beamLength, 0);
+                            lightGrad.addColorStop(0, 'rgba(254, 240, 138, 0.5)');
+                            lightGrad.addColorStop(1, 'rgba(254, 240, 138, 0.0)');
+                            ctx.fillStyle = lightGrad;
+                            ctx.beginPath();
+                            ctx.moveTo(85, 4);
+                            ctx.lineTo(85 + beamLength, -15);
+                            ctx.lineTo(85 + beamLength, 25);
+                            ctx.lineTo(85, 18);
+                            ctx.closePath();
+                            ctx.fill();
+                        }
+
+                        // Body Color Changes
+                        let bodyColor = '#0284c7';
+                        if (sandboxState.isExploded || dmg >= 90) bodyColor = '#1e1b18';
+                        else if (dmg > 50) bodyColor = '#991b1b';
+                        else if (dmg > 20) bodyColor = '#d97706';
+
+                        const bodyLength = Math.max(45, 90 - dmg * 0.35);
+
+                        // Lower Body
+                        ctx.fillStyle = bodyColor;
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        ctx.lineTo(bodyLength - 10, 0);
+                        
+                        if (dmg > 30) {
+                            ctx.lineTo(bodyLength - 2, 8 + Math.sin(frame) * 2);
+                            ctx.lineTo(bodyLength - 12, 16);
+                            ctx.lineTo(bodyLength - 5, 24);
+                        } else {
+                            ctx.lineTo(bodyLength, 24);
+                        }
+                        ctx.lineTo(0, 24);
+                        ctx.closePath();
+                        ctx.fill();
+
+                        // Upper Roof & Cabin
+                        const roofLength = Math.max(25, 54 - dmg * 0.25);
+                        ctx.fillStyle = bodyColor;
+                        ctx.beginPath();
+                        ctx.moveTo(18, 0);
+                        ctx.lineTo(24, -14);
+                        ctx.lineTo(18 + roofLength, -14);
+                        if (dmg > 40) {
+                            ctx.lineTo(18 + roofLength - 8, -4);
+                        } else {
+                            ctx.lineTo(18 + roofLength + 8, 0);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+
+                        // Glass / Windows
+                        if (dmg < 85) {
+                            ctx.fillStyle = dmg > 40 ? 'rgba(224, 242, 254, 0.4)' : '#bae6fd';
+                            ctx.fillRect(45, -12, Math.max(10, 22 - dmg * 0.15), 12);
+
+                            if (dmg > 30) {
+                                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+                                ctx.beginPath();
+                                ctx.moveTo(48, -10); ctx.lineTo(58, -2); ctx.lineTo(52, -12);
+                                ctx.stroke();
+                            }
+                        }
+
+                        // Headlight
+                        ctx.fillStyle = dmg > 70 ? '#475569' : '#fef08a';
+                        ctx.fillRect(Math.min(88, bodyLength - 2), 6, 4, 8);
+
+                        // Wheels
+                        const rotVel = sandboxState.sbVelX * 0.08;
+                        rotAngle += rotVel;
+
+                        drawWheels(22, 24, 10, rotAngle);
+
+                        if (dmg > 60) {
+                            ctx.save();
+                            ctx.translate(bodyLength - 18, 24);
+                            ctx.rotate(0.35);
+                            drawWheels(0, 0, 10, rotAngle * 0.5);
+                            ctx.restore();
+                        } else {
+                            drawWheels(bodyLength - 18, 24, 10, rotAngle);
+                        }
+
+                        // Fire Particles on Engine
+                        if (sandboxState.isExploded || dmg > 75) {
+                            for (let f = 0; f < 3; f++) {
+                                const fx = Math.random() * bodyLength;
+                                const fy = -5 - Math.random() * 15;
+                                const fr = 4 + Math.random() * 6;
+                                ctx.fillStyle = Math.random() > 0.5 ? '#f59e0b' : '#ef4444';
+                                ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI * 2); ctx.fill();
+                            }
+                        }
+
+                        ctx.restore();
+                        ctx.restore(); // restore shake
+
+                        const speedText = `${Math.abs(sandboxState.sbVelX * 3.5).toFixed(1)} m/s`;
+                        let statusText = "SANDBOX CAR ACTIVE";
+                        if (sandboxState.isExploded) statusText = "💥 VEHICLE TOTALED / EXPLODED";
+                        else if (dmg > 50) statusText = "⚠️ CRUMPLED / SEVERE DAMAGE";
+                        else if (dmg > 0) statusText = "🛠️ MINOR DAMAGE";
+                        
+                        drawSpeedHUD(ctx, width, speedText, statusText);
+                    }
+
+                    // BOWLING SCENARIO
+                    else if (sandboxState.subScenario === 'bowling') {
+                        ctx.restore(); // restore shake if applied
+                        const groundY = height - 40;
+                        const laneY = groundY - 10;
+
+                        ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, width, height);
+
+                        const laneGrad = ctx.createLinearGradient(0, laneY - 40, 0, laneY + 20);
+                        laneGrad.addColorStop(0, '#78350f'); laneGrad.addColorStop(1, '#d97706');
+                        ctx.fillStyle = laneGrad;
+                        ctx.fillRect(0, laneY - 40, width, 50);
+
+                        ctx.fillStyle = '#0f172a';
+                        ctx.fillRect(0, laneY - 50, width, 10);
+                        ctx.fillRect(0, laneY + 10, width, 10);
+
+                        sandboxState.sbVelX += netX * 0.0025;
+                        sandboxState.sbVelY += netY * 0.0025;
+
+                        sandboxState.sbVelX *= 0.99;
+                        sandboxState.sbVelY *= 0.99;
+
+                        if (!sandboxState.sbPosY || sandboxState.sbPosY === 0) {
+                            sandboxState.sbPosY = laneY - 15;
+                        }
+
+                        // Air physics & bounds
+                        if (sandboxState.sbPosY < laneY - 15) {
+                            sandboxState.sbVelY -= 0.12;
+                        }
+
+                        sandboxState.sbPosX += sandboxState.sbVelX;
+                        sandboxState.sbPosY -= sandboxState.sbVelY;
+
+                        if (sandboxState.sbPosY >= laneY - 15) {
+                            sandboxState.sbPosY = laneY - 15;
+                            if (sandboxState.sbVelY < 0) sandboxState.sbVelY = 0;
                         }
 
                         if (sandboxState.sbPosX < 20) {
@@ -2373,99 +2718,58 @@
                             sandboxState.sbVelX = 0;
                         }
 
-                        if (sandboxState.hasWall) {
-                            ctx.fillStyle = '#78350f';
-                            ctx.fillRect(wallX, groundY - 80, 30, 80);
-                            ctx.strokeStyle = '#451a03';
-                            ctx.lineWidth = 2;
-                            for (let wy = groundY - 80; wy < groundY; wy += 10) {
-                                ctx.beginPath(); ctx.moveTo(wallX, wy); ctx.lineTo(wallX + 30, wy); ctx.stroke();
+                        if (!sandboxState.pins || sandboxState.pins.length === 0) {
+                            sandboxState.pins = createBowlingPins(width, height);
+                        }
+
+                        sandboxState.pins.forEach(pin => {
+                            if (!pin.isHit) {
+                                const dist = Math.hypot(sandboxState.sbPosX - pin.x, sandboxState.sbPosY - pin.y);
+                                if (dist < 28) {
+                                    pin.isHit = true;
+                                    pin.vx = sandboxState.sbVelX * (0.8 + Math.random() * 0.4) + Math.random() * 2;
+                                    pin.vy = (Math.random() - 0.5) * 4 - sandboxState.sbVelY * 0.5;
+                                    pin.vRot = (Math.random() - 0.5) * 0.4;
+                                }
+                            } else {
+                                pin.x += pin.vx;
+                                pin.y += pin.vy;
+                                pin.rot += pin.vRot;
+                                pin.vx *= 0.95;
+                                pin.vy *= 0.95;
+                                pin.vRot *= 0.95;
                             }
-                        }
 
-                        for (let i = sparks.length - 1; i >= 0; i--) {
-                            const s = sparks[i];
-                            s.x += s.vx; s.y += s.vy; s.life -= 0.05;
-                            if (s.life <= 0) { sparks.splice(i, 1); continue; }
-                            ctx.fillStyle = `rgba(245, 158, 11, ${s.life})`;
-                            ctx.beginPath(); ctx.arc(s.x, s.y, 2, 0, Math.PI * 2); ctx.fill();
-                        }
+                            ctx.save();
+                            ctx.translate(pin.x, pin.y);
+                            ctx.rotate(pin.rot);
 
-                        const carX = sandboxState.sbPosX;
-                        const carY = sandboxState.sbPosY;
+                            ctx.fillStyle = '#ffffff';
+                            ctx.beginPath(); ctx.arc(0, -8, 5, 0, Math.PI * 2); ctx.fill();
+                            ctx.fillRect(-4, -4, 8, 16);
+                            ctx.fillStyle = '#ef4444';
+                            ctx.fillRect(-4, -6, 8, 3);
+
+                            ctx.restore();
+                        });
+
+                        const bx = sandboxState.sbPosX;
+                        const by = sandboxState.sbPosY;
 
                         ctx.save();
-                        ctx.translate(carX, carY);
+                        ctx.translate(bx, by);
 
-                        ctx.fillStyle = sandboxState.carDamage > 50 ? '#991b1b' : '#0284c7';
-                        ctx.fillRect(0, 0, 90 - sandboxState.carDamage * 0.2, 24);
-                        ctx.fillRect(18, -14, 54 - sandboxState.carDamage * 0.1, 14);
+                        ctx.fillStyle = '#a855f7';
+                        ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
 
-                        ctx.fillStyle = '#bae6fd';
-                        ctx.fillRect(40, -11, 26, 11);
-
-                        drawWheels(22, 24, 10, frame * 0.1 * sandboxState.sbVelX);
-                        drawWheels(68, 24, 10, frame * 0.1 * sandboxState.sbVelX);
+                        ctx.fillStyle = '#3b0764';
+                        ctx.beginPath(); ctx.arc(-4, -4, 2.5, 0, Math.PI * 2); ctx.fill();
+                        ctx.beginPath(); ctx.arc(3, -5, 2.5, 0, Math.PI * 2); ctx.fill();
+                        ctx.beginPath(); ctx.arc(0, 3, 3, 0, Math.PI * 2); ctx.fill();
 
                         ctx.restore();
 
-                        const statusTxt = sandboxState.carDamage > 0 ? `CRASH DAMAGE: ${Math.round(sandboxState.carDamage)}%` : `NET FORCE: (${netX}N, ${netY}N)`;
-                        drawSpeedHUD(ctx, width, `${Math.abs(sandboxState.sbVelX * 3).toFixed(1)} m/s`, statusTxt);
-                    } else if (sandboxState.subScenario === 'bowling') {
-                        const groundY = height - 55;
-                        ctx.fillStyle = '#78350f'; ctx.fillRect(0, groundY, width, 55);
-
-                        sandboxState.sbVelX += netX * 0.002;
-                        sandboxState.sbVelY += netY * 0.002;
-                        sandboxState.sbVelX *= 0.98;
-                        sandboxState.sbVelY *= 0.98;
-
-                        sandboxState.sbPosX += sandboxState.sbVelX;
-                        sandboxState.sbPosY = (sandboxState.sbPosY || groundY - 20) - sandboxState.sbVelY;
-
-                        if (sandboxState.sbPosY > groundY - 20) {
-                            sandboxState.sbPosY = groundY - 20;
-                            sandboxState.sbVelY = 0;
-                        }
-
-                        const ballX = sandboxState.sbPosX + 15;
-                        const ballY = sandboxState.sbPosY + 15;
-
-                        if (sandboxState.pins) {
-                            sandboxState.pins.forEach(pin => {
-                                if (!pin.isHit) {
-                                    const dist = Math.hypot(ballX - pin.x, ballY - pin.y);
-                                    if (dist < 22) {
-                                        pin.isHit = true;
-                                        pin.vx = sandboxState.sbVelX * 0.8 + (Math.random() - 0.5) * 3;
-                                        pin.vy = -Math.abs(sandboxState.sbVelX) * 0.5 + (Math.random() - 0.5) * 3;
-                                        pin.vRot = (Math.random() - 0.5) * 0.3;
-                                    }
-                                } else {
-                                    pin.x += pin.vx;
-                                    pin.y += pin.vy;
-                                    pin.rot += pin.vRot;
-                                    pin.vx *= 0.95;
-                                    pin.vy *= 0.95;
-                                }
-
-                                ctx.save();
-                                ctx.translate(pin.x, pin.y);
-                                ctx.rotate(pin.rot);
-                                ctx.fillStyle = '#f8fafc';
-                                ctx.fillRect(-4, -14, 8, 24);
-                                ctx.fillStyle = '#ef4444';
-                                ctx.fillRect(-4, -8, 8, 3);
-                                ctx.restore();
-                            });
-                        }
-
-                        ctx.fillStyle = '#a855f7';
-                        ctx.beginPath();
-                        ctx.arc(ballX, ballY, 15, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        drawSpeedHUD(ctx, width, `${Math.abs(sandboxState.sbVelX * 3).toFixed(1)} m/s`, `BOWLING PHYSICS`);
+                        drawSpeedHUD(ctx, width, `${Math.abs(sandboxState.sbVelX * 3.0).toFixed(1)} m/s`, "BOWLING ALLEY PHYSICS");
                     }
                 }
 
@@ -2475,7 +2779,8 @@
             renderLoop();
         }
 
-        window.addEventListener('DOMContentLoaded', initApp);
+        // Initialize application on DOM ready
+        window.onload = initApp;
     </script>
 </body>
 </html>
